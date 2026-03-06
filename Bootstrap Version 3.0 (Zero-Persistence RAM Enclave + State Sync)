@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# --- 1. CONFIG ---
+# Set your specific agent name here
+AGENT_NAME="<AGENT_NAME>"
+
+# 2026 OpenClaw pathing
+SOUL_PATH="$HOME/.openclaw/agents/$AGENT_NAME/persistence_backup"
+LIVE_SESSIONS="$HOME/.openclaw/agents/$AGENT_NAME/sessions"
+AGENT_DIR="$HOME/.openclaw/agents/$AGENT_NAME/agent"
+
+# --- 2. THE SAVE FUNCTION ---
+save_state() {
+    echo "--- Signal received: Securing agent state ---"
+    mkdir -p "$SOUL_PATH"
+    # Sync ONLY the actual transcript files
+    cp -ru "$LIVE_SESSIONS"/* "$SOUL_PATH/" 2>/dev/null
+    echo "--- State secured in persistence backup. Shutting down. ---"
+}
+
+# Dead-man's switch
+trap save_state EXIT
+
+# --- 3. THE CLEANUP & MOUNT ---
+pkill -f openclaw
+sudo umount -l "$AGENT_DIR" 2>/dev/null
+sudo umount -l "$LIVE_SESSIONS" 2>/dev/null
+
+# Create RAM disks for both the Keys (Agent) and the Live Sessions
+mkdir -p "$AGENT_DIR" "$LIVE_SESSIONS"
+sudo mount -t tmpfs -o size=5M tmpfs "$AGENT_DIR"
+sudo mount -t tmpfs -o size=30M tmpfs "$LIVE_SESSIONS"
+
+# Ensure correct permissions for the current user executing the script
+sudo chown -R $USER:$USER "$HOME/.openclaw/agents/$AGENT_NAME/"
+
+# RESTORE: Pull the saved state from SSD back into RAM
+mkdir -p "$SOUL_PATH"
+cp -r "$SOUL_PATH"/* "$LIVE_SESSIONS/" 2>/dev/null
+
+# --- 4. AUTH INJECTION ---
+# Replace <SECRET_NAME> and <VAULT_NAME> with your Azure Key Vault details
+VAULT_KEY=$(az keyvault secret show --name "<SECRET_NAME>" --vault-name "<VAULT_NAME>" --query value -o tsv)
+
+AUTH_PAYLOAD="{\"google\": {\"type\": \"api_key\", \"key\": \"$VAULT_KEY\", \"apiKey\": \"$VAULT_KEY\"}}"
+echo "$AUTH_PAYLOAD" > "$AGENT_DIR/auth-profiles.json"
+echo "$AUTH_PAYLOAD" > "$AGENT_DIR/auth.json"
+
+echo "Architecture Stabilized. Keys in RAM. State Restored. Starting the Agent..."
+
+# --- 5. LAUNCH ---
+export GOOGLE_API_KEY="$VAULT_KEY"
+unset VAULT_KEY
+openclaw gateway
