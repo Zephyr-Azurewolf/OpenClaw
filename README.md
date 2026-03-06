@@ -1,7 +1,6 @@
 # OpenClaw
-Scripts related to OpenClaw AI agent
 
-OpenClaw Zero-Persistence RAM Enclave & State Sync
+Zero-Persistence RAM Enclave & State Sync Bootstrap
 
 This script provides a highly secure, production-ready bootstrap environment for OpenClaw (2026 builds) and other local AI agent frameworks. It solves the critical "Security vs. State" dilemma by utilizing hybrid Linux mounts to isolate secrets in volatile memory while ensuring conversational state is safely persisted to disk.
 
