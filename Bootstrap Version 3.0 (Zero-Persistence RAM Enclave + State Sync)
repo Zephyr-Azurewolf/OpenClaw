@@ -1,54 +1,40 @@
 #!/bin/bash
 
 # --- 1. CONFIG ---
-# Set your specific agent name here
-AGENT_NAME="<AGENT_NAME>"
+AGENT_DIR="${HOME}/.openclaw/agents/main/agent"
 
-# 2026 OpenClaw pathing
-SOUL_PATH="$HOME/.openclaw/agents/$AGENT_NAME/persistence_backup"
-LIVE_SESSIONS="$HOME/.openclaw/agents/$AGENT_NAME/sessions"
-AGENT_DIR="$HOME/.openclaw/agents/$AGENT_NAME/agent"
-
-# --- 2. THE SAVE FUNCTION ---
-save_state() {
-    echo "--- Signal received: Securing agent state ---"
-    mkdir -p "$SOUL_PATH"
-    # Sync ONLY the actual transcript files
-    cp -ru "$LIVE_SESSIONS"/* "$SOUL_PATH/" 2>/dev/null
-    echo "--- State secured in persistence backup. Shutting down. ---"
-}
-
-# Dead-man's switch
-trap save_state EXIT
-
-# --- 3. THE CLEANUP & MOUNT ---
+# --- 2. THE CLEANUP & MOUNT ---
+# Terminate existing OpenClaw instances and clear previous mounts
 pkill -f openclaw
 sudo umount -l "$AGENT_DIR" 2>/dev/null
-sudo umount -l "$LIVE_SESSIONS" 2>/dev/null
 
-# Create RAM disks for both the Keys (Agent) and the Live Sessions
-mkdir -p "$AGENT_DIR" "$LIVE_SESSIONS"
+# Create a RAM disk (tmpfs) to ensure keys never hit the physical disk
+mkdir -p "$AGENT_DIR"
 sudo mount -t tmpfs -o size=5M tmpfs "$AGENT_DIR"
-sudo mount -t tmpfs -o size=30M tmpfs "$LIVE_SESSIONS"
+sudo chown -R $(whoami):$(whoami) "$AGENT_DIR"
 
-# Ensure correct permissions for the current user executing the script
-sudo chown -R $USER:$USER "$HOME/.openclaw/agents/$AGENT_NAME/"
+# --- 3. AUTH INJECTION ---
+# Replace with your secret management provider (e.g., local env, vault, or sops)
+# Placeholder logic for secret retrieval:
+SECRET_KEY="${OPENROUTER_API_KEY}" 
 
-# RESTORE: Pull the saved state from SSD back into RAM
-mkdir -p "$SOUL_PATH"
-cp -r "$SOUL_PATH"/* "$LIVE_SESSIONS/" 2>/dev/null
+if [ -z "$SECRET_KEY" ]; then
+    echo "Error: API Key not found in environment."
+    exit 1
+fi
 
-# --- 4. AUTH INJECTION ---
-# Replace <SECRET_NAME> and <VAULT_NAME> with your Azure Key Vault details
-VAULT_KEY=$(az keyvault secret show --name "<SECRET_NAME>" --vault-name "<VAULT_NAME>" --query value -o tsv)
+AUTH_PAYLOAD="{\"openrouter\": {\"type\": \"api_key\", \"key\": \"$SECRET_KEY\", \"apiKey\": \"$SECRET_KEY\"}}"
 
-AUTH_PAYLOAD="{\"google\": {\"type\": \"api_key\", \"key\": \"$VAULT_KEY\", \"apiKey\": \"$VAULT_KEY\"}}"
+# Write auth profiles directly to the RAM disk
 echo "$AUTH_PAYLOAD" > "$AGENT_DIR/auth-profiles.json"
 echo "$AUTH_PAYLOAD" > "$AGENT_DIR/auth.json"
 
-echo "Architecture Stabilized. Keys in RAM. State Restored. Starting the Agent..."
+echo "Security layer initialized: RAM disk mounted at $AGENT_DIR"
 
-# --- 5. LAUNCH ---
-export GOOGLE_API_KEY="$VAULT_KEY"
-unset VAULT_KEY
+# --- 4. LAUNCH ---
+export OPENROUTER_API_KEY="$SECRET_KEY"
+# Clear sensitive variable before launch
+unset SECRET_KEY
+
+echo "Launching OpenClaw gateway..."
 openclaw gateway
