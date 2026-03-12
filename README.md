@@ -3,6 +3,7 @@ OpenClaw Gateway: Secure Bootstrap & Service Architecture
 This repository contains a hardened deployment configuration for the OpenClaw Gateway. It utilizes a "Secret Injection" pattern to ensure that sensitive API credentials never touch persistent storage, residing strictly in volatile RAM (tmpfs) during runtime.
 
 🚀 Key Features
+
 Volatile Secret Management: API keys are fetched from a secure vault (Azure Key Vault) and mounted via kernel-level bind mounts to RAM.
 
 Zero-Disk Leakage: Sensitive JSON profiles are vaporized the moment the service stops, leaving only empty 0-byte anchors on the SSD.
@@ -12,6 +13,7 @@ Systemd Integration: Automated lifecycle management including auto-recovery on f
 Process Handover: Uses the exec command to replace the shell process with the application, reducing overhead and improving signal handling.
 
 📂 Architecture Overview
+
 Systemd creates a secure RuntimeDirectory at /run/openclaw-vault.
 
 Bootstrap Script fetches the API Key and writes it to the RAM directory.
@@ -81,7 +83,9 @@ SuccessExitStatus=0 143
 [Install]
 
 WantedBy=multi-user.target
+
 🛡️ Security Verification
+
 To verify that secrets are not leaking to the disk, stop the service and check the file content:
 
 Bash
