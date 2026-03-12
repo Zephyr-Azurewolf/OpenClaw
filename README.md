@@ -1,71 +1,86 @@
-# OpenClaw
+OpenClaw Gateway: Secure Bootstrap & Service Architecture
+This repository contains a hardened deployment configuration for the OpenClaw Gateway. It utilizes a "Secret Injection" pattern to ensure that sensitive API credentials never touch persistent storage, residing strictly in volatile RAM (tmpfs) during runtime.
 
-Zero-Persistence RAM Enclave & State Sync Bootstrap
+🚀 Key Features
+Volatile Secret Management: API keys are fetched from a secure vault (Azure Key Vault) and mounted via kernel-level bind mounts to RAM.
 
-This script provides a highly secure, production-ready bootstrap environment for OpenClaw (2026 builds) and other local AI agent frameworks. It solves the critical "Security vs. State" dilemma by utilizing hybrid Linux mounts to isolate secrets in volatile memory while ensuring conversational state is safely persisted to disk.
+Zero-Disk Leakage: Sensitive JSON profiles are vaporized the moment the service stops, leaving only empty 0-byte anchors on the SSD.
 
-##The Problem
+Systemd Integration: Automated lifecycle management including auto-recovery on failure and graceful teardown.
 
-Running local AI agents often requires injecting sensitive credentials (like Google Gemini, OpenAI, or Anthropic API keys) into local configuration files (e.g., auth.json or auth-profiles.json).
+Process Handover: Uses the exec command to replace the shell process with the application, reducing overhead and improving signal handling.
 
-The Security Risk: Writing plaintext API keys to an SSD leaves a permanent forensic trace. It exposes you to local file-read exploits, rogue agent skills (e.g., in shared Moltbook environments), and supply-chain attacks.
+📂 Architecture Overview
+Systemd creates a secure RuntimeDirectory at /run/openclaw-vault.
 
-The "File Lock" Issue: Simply symlinking or bind-mounting individual secure files often causes Device or resource busy errors because modern Node.js applications attempt atomic writes (rename/replace) during migrations or boot sequences, which the Linux kernel blocks on file-level mounts.
+Bootstrap Script fetches the API Key and writes it to the RAM directory.
 
-The Amnesia Problem: Moving the entire agent directory to a tmpfs (RAM disk) solves the security issue but destroys the agent's memory (sessions and transcripts) every time the service restarts.
+Bind Mount overlays the RAM file onto the application's expected configuration path.
 
-##The Solution
+Application executes, seeing the keys as local files.
 
-This script creates a Zero-Persistence Enclave for credentials while maintaining a Bi-Directional State Sync for the agent's memory.
+On Exit, Systemd unmounts the files and deletes the RAM directory.
 
-##Key Features
+🛠️ Installation & Setup
+1. Prerequisites
+Azure CLI installed and configured with a Managed Identity or Service Principal.
 
-Azure Key Vault Integration: Fetches credentials securely at runtime rather than relying on local .env files.
+tmpfs support enabled in the Linux kernel.
 
-Directory-Level RAM Mounts: Mounts the configuration and session directories directly to tmpfs. This bypasses strict symlink security checks and allows the application to perform atomic file operations freely without throwing kernel locks.
+2. The Bootstrap Script
+Save the following as start_gateway.sh and give it execute permissions (chmod +x):
 
-Dead-Man's Switch (Trap): Uses a Linux trap to intercept exit signals (like Ctrl+C or service stops). Before the RAM disk evaporates, it safely synchronizes the active .jsonl session transcripts back to the SSD.
+Bash
+#!/bin/bash
+# Configuration
+APP_DIR="/path/to/your/openclaw/agent"
+RAM_DIR="/run/openclaw-vault" 
+VAULT_NAME="your-keyvault-name"
+SECRET_NAME="your-secret-name"
 
-Sterile Platter: If the machine loses power or is compromised post-shutdown, the SSD contains absolutely no API keys.
+# 1. Fetch & Write to RAM
+SECRET_VAL=$(az keyvault secret show --name "$SECRET_NAME" --vault-name "$VAULT_NAME" --query value -o tsv)
+AUTH_PAYLOAD="{\"openrouter\": {\"type\": \"api_key\", \"key\": \"$SECRET_VAL\", \"apiKey\": \"$SECRET_VAL\"}}"
+echo "$AUTH_PAYLOAD" > "$RAM_DIR/auth-profiles.json"
 
-##How It Works (Step-by-Step)
+# 2. Create SSD Anchor & Bind Mount
+touch "$APP_DIR/auth-profiles.json"
+sudo mount --bind "$RAM_DIR/auth-profiles.json" "$APP_DIR/auth-profiles.json"
 
-Cleanup & Teardown: The script safely unmounts any hanging tmpfs volumes from previous crashes and kills zombie processes.
+# 3. Handover to Application
+export OPENROUTER_API_KEY="$SECRET_VAL"
+unset SECRET_VAL
+exec /usr/bin/node /path/to/openclaw gateway
+3. Systemd Service Configuration
+Create /etc/systemd/system/openclaw-gateway.service:
 
-RAM Allocation: It carves out two temporary file systems (tmpfs) in your system's RAM: one for the agent's credentials (5MB) and one for the active session logs (30MB).
+Ini, TOML
+[Unit]
+Description=OpenClaw Gateway Service
+After=network-online.target
 
-State Restoration: It pulls the latest saved agent state (the "Soul") from the secure SSD backup folder and loads it into the RAM-based session directory.
+[Service]
+Type=simple
+User=youruser
+Group=youruser
+WorkingDirectory=/home/youruser
+RuntimeDirectory=openclaw-vault
 
-Credential Injection: It fetches the live API key from Azure Key Vault and writes the auth.json payload directly into the volatile RAM directory.
+ExecStart=/bin/bash /home/youruser/start_gateway.sh
 
-Execution: The environment variables are set, the vault variable is unset from script memory, and the OpenClaw gateway is launched.
+# Cleanup: Unmount the RAM overlay after the process exits
+ExecStopPost=/usr/bin/sudo /usr/bin/umount -l /home/youruser/.openclaw/agents/main/agent/auth-profiles.json
 
-Graceful Exit: Upon receiving an exit signal, the trap function triggers, backing up the updated session files from RAM to the SSD before the system reclaims the volatile memory.
+Restart=on-failure
+SuccessExitStatus=0 143
 
-##Prerequisites
+[Install]
+WantedBy=multi-user.target
+🛡️ Security Verification
+To verify that secrets are not leaking to the disk, stop the service and check the file content:
 
-Linux environment (Ubuntu/Debian recommended).
-
-az cli installed and authenticated to your Azure account.
-
-OpenClaw framework installed.
-
-##Setup Instructions
-
-Clone the repository and place the script in your home directory or a secure bin folder.
-
-Update the configuration variables at the top of the script:
-
-<AGENT_NAME>: Your specific OpenClaw agent directory name.
-
-<SECRET_NAME>: The name of your secret in Azure Key Vault.
-
-<VAULT_NAME>: The name of your Azure Key Vault instance.
-
-Make the script executable: chmod +x start_agent.sh
-
-Run the script: ./start_agent.sh
-
-##Security Note regarding --inplace Syncing
-
-The sync function currently utilizes cp -ru to update the SSD with the latest files from RAM. For enterprise deployments where absolute atomic writes are required to prevent data corruption during unexpected power loss, consider modifying the save_state function to sync to a staging directory first, followed by an atomic mv or hard-link swap to the final persistence folder.
+Bash
+sudo systemctl stop openclaw-gateway
+cat /path/to/your/openclaw/agent/auth-profiles.json
+# Result should be empty (0 bytes)
+Would you like me to add a "Troubleshooting" section to this README covering the
