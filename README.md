@@ -23,12 +23,15 @@ Application executes, seeing the keys as local files.
 On Exit, Systemd unmounts the files and deletes the RAM directory.
 
 🛠️ Installation & Setup
+
 1. Prerequisites
+   
 Azure CLI installed and configured with a Managed Identity or Service Principal.
 
 tmpfs support enabled in the Linux kernel.
 
 2. The Bootstrap Script
+   
 Save the following as start_gateway.sh and give it execute permissions (chmod +x):
 
 Bash
@@ -76,6 +79,7 @@ Restart=on-failure
 SuccessExitStatus=0 143
 
 [Install]
+
 WantedBy=multi-user.target
 🛡️ Security Verification
 To verify that secrets are not leaking to the disk, stop the service and check the file content:
