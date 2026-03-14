@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# OpenClaw Gateway: Secure Bootstrap Script
+# Architecture: Fetches API credentials from a vault and mounts them strictly 
+# to volatile RAM (tmpfs) to prevent sensitive keys from ever touching persistent storage.
+
+# --- ⚙️ Configuration ---
+USER_HOME="/home/yourusername"
+AGENT_DIR="$USER_HOME/.openclaw/agents/main/agent"
+RAM_DIR="/run/openclaw-vault"      # Matches systemd RuntimeDirectory
+
+# Provider Details
+PROVIDER="openrouter"              # e.g., anthropic, openai, mistral
+PROFILE_ID="default"               # Internal ID for this credential set
+VAULT_NAME="your-vault-name"       # Azure Key Vault Name
+SECRET_NAME="API-KEY-SECRET"       # Azure Secret Name
+
+# Path to OpenClaw Binary
+OPENCLAW_BIN="$USER_HOME/.npm-global/bin/openclaw"
+
+# --- 1. 🔑 FETCH & WRITE TO RAM ---
+# Retrieve the API key via Azure CLI
+VAULT_KEY=$(az keyvault secret show --name "$SECRET_NAME" --vault-name "$VAULT_NAME" --query value -o tsv)
+
+# Construct JSON payload conforming to OpenClaw Schema v2026.3.11+
+# This uses the $PROVIDER variable to make the profile dynamic.
+AUTH_PAYLOAD="{\"version\": 1, \"profiles\": {\"$PROVIDER:$PROFILE_ID\": {\"type\": \"api_key\", \"provider\": \"$PROVIDER\", \"key\": \"$VAULT_KEY\"}}, \"lastGood\": {}}"
+
+# Write the payload to the volatile RAM directory
+echo "$AUTH_PAYLOAD" > "$RAM_DIR/auth-profiles.json"
+
+# --- 2. ⚓ CREATE SSD ANCHOR ---
+# Ensure a dummy file exists on the disk to serve as the mount point target
+touch "$AGENT_DIR/auth-profiles.json"
+
+# --- 3. 🧠 BIND MOUNT (RAM OVER SSD) ---
+# Overlay the RAM-resident file onto the application's expected config path
+sudo mount --bind "$RAM_DIR/auth-profiles.json" "$AGENT_DIR/auth-profiles.json"
+
+# Clean up variables
+unset VAULT_KEY
+
+echo "Architecture Stabilized. Keys in volatile RAM. Waking the Gateway..."
+
+# --- 4. 🐺 THE HANDOVER ---
+# 'exec' replaces the bash process with the application in the process tree.
+exec "$OPENCLAW_BIN" gateway
