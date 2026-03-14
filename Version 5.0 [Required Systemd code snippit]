@@ -1,0 +1,29 @@
+[Unit]
+Description=OpenClaw Secure Gateway Service
+After=network.target
+
+[Service]
+Type=simple
+User=yourusername
+WorkingDirectory=/home/yourusername
+
+# Automatically creates a secure tmpfs RAM disk at /run/openclaw-vault
+# This directory is vaporized by the OS the moment the service stops.
+RuntimeDirectory=openclaw-vault
+
+# Call the secure bootstrap shell script
+ExecStart=/bin/bash /home/yourusername/start_gateway.sh
+
+# Signal handling for clean shutdowns
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# Strict restart logic: only resurrect if it actually crashes
+Restart=on-failure
+SuccessExitStatus=0 143
+
+# The Cleanup Crew: Force-drops the RAM overlay AFTER the process shuts down safely
+ExecStopPost=/usr/bin/sudo /usr/bin/umount -l /home/yourusername/.openclaw/agents/main/agent/auth-profiles.json
+
+[Install]
+WantedBy=multi-user.target
