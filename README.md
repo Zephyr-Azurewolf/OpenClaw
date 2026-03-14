@@ -1,95 +1,60 @@
-OpenClaw Gateway: Secure Bootstrap & Service Architecture
+# 🐺 OpenClaw Secure Gateway: Zero-Disk API Vault
 
-This repository contains a hardened deployment configuration for the OpenClaw Gateway. It utilizes a "Secret Injection" pattern to ensure that sensitive API credentials never touch persistent storage, residing strictly in volatile RAM (tmpfs) during runtime.
+#### Architecture Overview
+This deployment architecture provides a **secure, zero-disk-leakage environment** for running the **OpenClaw Gateway (v2026.3.11+)**. It is specifically designed to prevent **sensitive API credentials** from ever being written to persistent SSD storage.
 
-🚀 Key Features
+Instead of storing plain-text keys on a physical drive where they could be recovered, this **daemonized setup** utilizes **systemd** to construct a **volatile memory environment**:
 
-Volatile Secret Management: API keys are fetched from a secure vault (Azure Key Vault) and mounted via kernel-level bind mounts to RAM.
+* **Retrieves** the secure token directly from **Azure Key Vault**.
+* **Generates** the strict **JSON schema** required by modern OpenClaw routing.
+* **Writes** the payload strictly to a **volatile RAM disk (tmpfs)**.
+* **Bind-mounts** the RAM-resident file over the application's expected configuration directory.
+* **Vaporizes** the credentials from memory the moment the service is **stopped** or the **VM is restarted**.
 
-Zero-Disk Leakage: Sensitive JSON profiles are vaporized the moment the service stops, leaving only empty 0-byte anchors on the SSD.
+---
 
-Systemd Integration: Automated lifecycle management including auto-recovery on failure and graceful teardown.
+#### Prerequisites
+* **Linux Environment** utilizing **systemd** (Ubuntu/Debian preferred).
+* **Azure CLI** installed and authenticated (**Managed Identity** recommended).
+* **OpenClaw Gateway** version **2026.3.11** or higher.
+* **Sudo Privileges** required for executing **mount --bind**.
 
-Process Handover: Uses the exec command to replace the shell process with the application, reducing overhead and improving signal handling.
+---
 
-📂 Architecture Overview
+#### **File Structure**
+* **start_gateway.sh**: The core **bootstrap script** handling key retrieval, schema generation, and the **exec process handover**.
+* **openclaw-gateway.service**: The **systemd unit file** managing the process lifecycle and the **RuntimeDirectory RAM disk**.
 
-Systemd creates a secure RuntimeDirectory at /run/openclaw-vault.
+---
 
-Bootstrap Script fetches the API Key and writes it to the RAM directory.
+#### Installation & Deployment**
 
-Bind Mount overlays the RAM file onto the application's expected configuration path.
+### 1. Configure the Bootstrap Script
+Edit the configuration variables at the top of **start_gateway.sh** to match your **User Home**, **Provider**, and **Azure Vault** details. Then, set the execution permissions:
 
-Application executes, seeing the keys as local files.
+`chmod +x /home/yourusername/start_gateway.sh`
 
-On Exit, Systemd unmounts the files and deletes the RAM directory.
+### 2. Deploy the Systemd Service
+Copy the service file into the system manager directory and set the appropriate **strict read permissions (644)**:
 
-🛠️ Installation & Setup
+`sudo cp openclaw-gateway.service /etc/systemd/system/`
+`sudo chmod 644 /etc/systemd/system/openclaw-gateway.service`
 
-1. Prerequisites
-   
-Azure CLI installed and configured with a Managed Identity or Service Principal.
+### 3. Initialize the Daemon
+Reload the **system manager** to register the new architecture, **enable** it for automatic boot-up, and **wake the gateway**:
 
-tmpfs support enabled in the Linux kernel.
+`sudo systemctl daemon-reload`
+`sudo systemctl enable openclaw-gateway.service`
+`sudo systemctl start openclaw-gateway.service`
 
-2. The Bootstrap Script
-   
-Save the following as start_gateway.sh and give it execute permissions (chmod +x):
+### 4. Verify the Architecture
+Confirm that the keys are **safely mounted in RAM** and the gateway is active by **streaming the logs**:
 
-Bash
-#!/bin/bash
-# Configuration
-APP_DIR="/path/to/your/openclaw/agent"
-RAM_DIR="/run/openclaw-vault" 
-VAULT_NAME="your-keyvault-name"
-SECRET_NAME="your-secret-name"
+`journalctl -u openclaw-gateway.service -f`
 
-# 1. Fetch & Write to RAM
-SECRET_VAL=$(az keyvault secret show --name "$SECRET_NAME" --vault-name "$VAULT_NAME" --query value -o tsv)
-AUTH_PAYLOAD="{\"openrouter\": {\"type\": \"api_key\", \"key\": \"$SECRET_VAL\", \"apiKey\": \"$SECRET_VAL\"}}"
-echo "$AUTH_PAYLOAD" > "$RAM_DIR/auth-profiles.json"
+---
 
-# 2. Create SSD Anchor & Bind Mount
-touch "$APP_DIR/auth-profiles.json"
-sudo mount --bind "$RAM_DIR/auth-profiles.json" "$APP_DIR/auth-profiles.json"
-
-# 3. Handover to Application
-export OPENROUTER_API_KEY="$SECRET_VAL"
-unset SECRET_VAL
-exec /usr/bin/node /path/to/openclaw gateway
-3. Systemd Service Configuration
-Create /etc/systemd/system/openclaw-gateway.service:
-
-Ini, TOML
-[Unit]
-Description=OpenClaw Gateway Service
-After=network-online.target
-
-[Service]
-Type=simple
-User=youruser
-Group=youruser
-WorkingDirectory=/home/youruser
-RuntimeDirectory=openclaw-vault
-
-ExecStart=/bin/bash /home/youruser/start_gateway.sh
-
-# Cleanup: Unmount the RAM overlay after the process exits
-ExecStopPost=/usr/bin/sudo /usr/bin/umount -l /home/youruser/.openclaw/agents/main/agent/auth-profiles.json
-
-Restart=on-failure
-SuccessExitStatus=0 143
-
-[Install]
-
-WantedBy=multi-user.target
-
-🛡️ Security Verification
-
-To verify that secrets are not leaking to the disk, stop the service and check the file content:
-
-Bash
-sudo systemctl stop openclaw-gateway
-cat /path/to/your/openclaw/agent/auth-profiles.json
-# Result should be empty (0 bytes)
-
+#### Security Notes
+* **Process Replacement**: The bootstrap script utilizes **exec** to hand over control entirely to the **Node process**. This ensures that **systemd signals** (like **SIGTERM**) are passed directly to the OpenClaw application for a **graceful teardown**.
+* **The Cleanup Crew**: The **ExecStopPost** directive ensures that even in the event of an unexpected crash, the **umount -l** command fires, dropping the **RAM overlay** and leaving no trace of the API profile on the disk.
+  
