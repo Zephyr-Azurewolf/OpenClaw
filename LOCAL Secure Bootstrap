@@ -1,0 +1,39 @@
+#!/bin/bash
+# Project: AI Agent Gateway Node
+# Objective: Minimalist volatile assembly. 
+
+RAM_DIR="/run/openclaw-vault"
+JSON_OUT="$RAM_DIR/auth-profiles.json"
+TG_TOKEN_OUT="$RAM_DIR/telegram.token"
+
+# 1. Pull raw keys from the secure Systemd Credentials pipe
+OR_KEY=$(cat "${CREDENTIALS_DIRECTORY}/or_secret")
+TG_KEY=$(cat "${CREDENTIALS_DIRECTORY}/tg_secret")
+
+# 2. Assemble Agent Auth Store (OpenRouter ONLY)
+# This satisfies the Agent subsystem for LLM calls.
+cat <<EOF > "$JSON_OUT"
+{
+  "version": 1,
+  "profiles": {
+    "openrouter:default": {
+      "type": "api_key",
+      "provider": "openrouter",
+      "key": "$OR_KEY"
+    }
+  },
+  "lastGood": {}
+}
+EOF
+
+# 3. Assemble Raw Channel Token (Telegram ONLY)
+# This satisfies the legacy Channel subsystem.
+echo -n "$TG_KEY" > "$TG_TOKEN_OUT"
+
+# 4. Lockdown & Cleanup
+chmod 600 "$JSON_OUT" "$TG_TOKEN_OUT"
+unset OR_KEY
+unset TG_KEY
+
+# Use $HOME instead of a hardcoded user directory
+exec "$HOME/.npm-global/bin/openclaw" gateway --verbose
