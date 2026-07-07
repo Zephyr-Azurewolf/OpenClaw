@@ -57,13 +57,16 @@ systemd-creds available on the host machine.
 tmpfs support enabled in the Linux kernel.
 
 1. Encrypting the Keys
+
 Instead of leaving API keys exposed in an environment file, use systemd-creds to encrypt the token. Pipe the raw keys directly into the credential path targeted by your service unit file:
 
 Bash
 echo "sk-or-v1-your-new-openrouter-key..." | sudo systemd-creds encrypt --name=or_secret - /etc/openclaw/vault/openrouter.cred
 
 echo "your-telegram-token..." | sudo systemd-creds encrypt --name=tg_secret - /etc/openclaw/vault/telegram.cred
+
 2. The Volatile Runtime Mirror
+
 The Injection: During service boot, Systemd decrypts the credential directly into RAM at /run/openclaw-vault/.
 
 The Ephemeral Loop: OpenClaw references the keys from this memory-mapped directory. If the daemon drops or the hardware loses power, the volatile directory is instantly vaporized, leaving nothing behind but the encrypted blob on the physical disk.
