@@ -1,10 +1,10 @@
 OpenClaw Gateway: Secure Bootstrap & Service Architecture
-
 This repository contains a hardened deployment configuration for the OpenClaw Gateway. It utilizes a "Secret Injection" pattern to ensure that sensitive API credentials never touch persistent storage, residing strictly in volatile RAM (tmpfs) during runtime.
 
-🚀 Key Features
+This architecture supports both cloud-native environments (via Azure Key Vault) and localized bare-metal deployments (via Systemd Credentials).
 
-Volatile Secret Management: API keys are fetched from a secure vault (Azure Key Vault) and mounted via kernel-level bind mounts to RAM.
+🚀 Key Features
+Volatile Secret Management: API keys are fetched from a secure source (Azure Key Vault or Systemd Credentials) and assembled directly into RAM.
 
 Zero-Disk Leakage: Sensitive JSON profiles are vaporized the moment the service stops, leaving only empty 0-byte anchors on the SSD.
 
@@ -13,83 +13,79 @@ Systemd Integration: Automated lifecycle management including auto-recovery on f
 Process Handover: Uses the exec command to replace the shell process with the application, reducing overhead and improving signal handling.
 
 📂 Architecture Overview
-
 Systemd creates a secure RuntimeDirectory at /run/openclaw-vault.
 
-Bootstrap Script fetches the API Key and writes it to the RAM directory.
+The Bootstrap Script fetches the API Key and writes it to the RAM directory.
 
-Bind Mount overlays the RAM file onto the application's expected configuration path.
+A Bind Mount overlays the RAM file onto the application's expected configuration path.
 
-Application executes, seeing the keys as local files.
+The application executes, seeing the keys as local files.
 
-On Exit, Systemd unmounts the files and deletes the RAM directory.
+On exit, Systemd unmounts the files and deletes the RAM directory.
 
-🛠️ Installation & Setup
+🛠️ Core Mechanism: The RAM Overlay
+While the full deployment scripts are located in their respective repository branches, the core mechanism that secures the credentials relies on creating an empty file on the physical disk and overlaying it with the volatile RAM file.
 
-1. Prerequisites
-   
+If running or testing the mount manually, execute the following to create the SSD anchor and bind the mount:
+
+Bash
+# Create SSD Anchor & Bind Mount
+touch "$APP_DIR/auth-profiles.json" 
+sudo mount --bind "$RAM_DIR/auth-profiles.json" "$APP_DIR/auth-profiles.json"
+☁️ Deployment: Cloud Implementation (Version 5.0)
+Prerequisites:
+
 Azure CLI installed and configured with a Managed Identity or Service Principal.
 
 tmpfs support enabled in the Linux kernel.
 
-2. The Bootstrap Script
-   
-Save the following as start_gateway.sh and give it execute permissions (chmod +x):
+Deployment Files:
+
+🔗 [View the 'V.5' branch] for the full start_gateway.sh automation script.
+
+Systemd Configuration:
+[Required Systemd code snippet for cloud implementation]
+
+🖥️ Deployment: Local Implementation (Version 6.0)
+This deployment strategy is optimized for sovereign hardware nodes. It avoids plain-text environment files entirely by utilizing systemd-creds to bind encrypted credentials to the specific machine's ID.
+
+Prerequisites:
+
+systemd-creds available on the host machine.
+
+tmpfs support enabled in the Linux kernel.
+
+1. Encrypting the Keys
+Instead of leaving API keys exposed in an environment file, use systemd-creds to encrypt the token. Pipe the raw keys directly into the credential path targeted by your service unit file:
 
 Bash
-#!/bin/bash
-# Configuration
-APP_DIR="/path/to/your/openclaw/agent"
-RAM_DIR="/run/openclaw-vault" 
-VAULT_NAME="your-keyvault-name"
-SECRET_NAME="your-secret-name"
+echo "sk-or-v1-your-new-openrouter-key..." | sudo systemd-creds encrypt --name=or_secret - /etc/openclaw/vault/openrouter.cred
 
-# 1. Fetch & Write to RAM
-SECRET_VAL=$(az keyvault secret show --name "$SECRET_NAME" --vault-name "$VAULT_NAME" --query value -o tsv)
-AUTH_PAYLOAD="{\"openrouter\": {\"type\": \"api_key\", \"key\": \"$SECRET_VAL\", \"apiKey\": \"$SECRET_VAL\"}}"
-echo "$AUTH_PAYLOAD" > "$RAM_DIR/auth-profiles.json"
+echo "your-telegram-token..." | sudo systemd-creds encrypt --name=tg_secret - /etc/openclaw/vault/telegram.cred
+2. The Volatile Runtime Mirror
+The Injection: During service boot, Systemd decrypts the credential directly into RAM at /run/openclaw-vault/.
 
-# 2. Create SSD Anchor & Bind Mount
-touch "$APP_DIR/auth-profiles.json"
-sudo mount --bind "$RAM_DIR/auth-profiles.json" "$APP_DIR/auth-profiles.json"
+The Ephemeral Loop: OpenClaw references the keys from this memory-mapped directory. If the daemon drops or the hardware loses power, the volatile directory is instantly vaporized, leaving nothing behind but the encrypted blob on the physical disk.
 
-# 3. Handover to Application
-export OPENROUTER_API_KEY="$SECRET_VAL"
-unset SECRET_VAL
-exec /usr/bin/node /path/to/openclaw gateway
-3. Systemd Service Configuration
-Create /etc/systemd/system/openclaw-gateway.service:
+Deployment Files:
 
-Ini, TOML
-[Unit]
-Description=OpenClaw Gateway Service
-After=network-online.target
+🔗 [View the 'V.6' branch] for the full bootstrap scripts.
 
-[Service]
-Type=simple
-User=youruser
-Group=youruser
-WorkingDirectory=/home/youruser
-RuntimeDirectory=openclaw-vault
-
-ExecStart=/bin/bash /home/youruser/start_gateway.sh
-
-# Cleanup: Unmount the RAM overlay after the process exits
-ExecStopPost=/usr/bin/sudo /usr/bin/umount -l /home/youruser/.openclaw/agents/main/agent/auth-profiles.json
-
-Restart=on-failure
-SuccessExitStatus=0 143
-
-[Install]
-
-WantedBy=multi-user.target
+Systemd Configuration:
+See:
+[Required Systemd code snippet for local implementation]
+Version 5.0 for cloud deployment
+Version 6.0 for local deployment
 
 🛡️ Security Verification
+To verify the deployment succeeded, the vault sealed properly, and secrets are not leaking to the disk:
 
-To verify that secrets are not leaking to the disk, stop the service and check the file content:
+Stop the active service:
 
 Bash
-sudo systemctl stop openclaw-gateway
-cat /path/to/your/openclaw/agent/auth-profiles.json
-# Result should be empty (0 bytes)
+sudo systemctl stop openclaw-gateway 
+Check the persistent path:
 
+Bash
+cat /path/to/your/openclaw/agent/auth-profiles.json
+Expected Result: The file should be completely empty (0 bytes) or return a "No such file or directory" error.
