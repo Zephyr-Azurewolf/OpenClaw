@@ -1,10 +1,10 @@
-OpenClaw Gateway: Secure Bootstrap & Service Architecture
+# OpenClaw Gateway: Secure Bootstrap & Service Architecture
 
 This repository contains a hardened deployment configuration for the OpenClaw Gateway. It utilizes a "Secret Injection" pattern to ensure that sensitive API credentials never touch persistent storage, residing strictly in volatile RAM (tmpfs) during runtime.
 
 This architecture supports both cloud-native environments (via Azure Key Vault) and localized bare-metal deployments (via Systemd Credentials).
 
-🚀 Key Features
+# 🚀 Key Features
 Volatile Secret Management: API keys are fetched from a secure source (Azure Key Vault or Systemd Credentials) and assembled directly into RAM.
 
 Zero-Disk Leakage: Sensitive JSON profiles are vaporized the moment the service stops, leaving only empty 0-byte anchors on the SSD.
@@ -13,7 +13,7 @@ Systemd Integration: Automated lifecycle management including auto-recovery on f
 
 Process Handover: Uses the exec command to replace the shell process with the application, reducing overhead and improving signal handling.
 
-📂 Architecture Overview
+# 📂 Architecture Overview
 Systemd creates a secure RuntimeDirectory at /run/openclaw-vault.
 
 The Bootstrap Script fetches the API Key and writes it to the RAM directory.
@@ -24,16 +24,16 @@ The application executes, seeing the keys as local files.
 
 On exit, Systemd unmounts the files and deletes the RAM directory.
 
-🛠️ Core Mechanism: The RAM Overlay
+# 🛠️ Core Mechanism: The RAM Overlay
 While the full deployment scripts are located in their respective repository branches, the core mechanism that secures the credentials relies on creating an empty file on the physical disk and overlaying it with the volatile RAM file.
 
 If running or testing the mount manually, execute the following to create the SSD anchor and bind the mount:
 
 Bash
-# Create SSD Anchor & Bind Mount
 touch "$APP_DIR/auth-profiles.json" 
 sudo mount --bind "$RAM_DIR/auth-profiles.json" "$APP_DIR/auth-profiles.json"
-☁️ Deployment: Cloud Implementation (Version 5.0)
+
+# ☁️ Deployment: Cloud Implementation (Version 5.0)
 Prerequisites:
 
 Azure CLI installed and configured with a Managed Identity or Service Principal.
@@ -47,7 +47,7 @@ Deployment Files:
 Systemd Configuration:
 [Required Systemd code snippet for cloud implementation]
 
-🖥️ Deployment: Local Implementation (Version 6.0)
+# 🖥️ Deployment: Local Implementation (Version 6.0)
 This deployment strategy is optimized for sovereign hardware nodes. It avoids plain-text environment files entirely by utilizing systemd-creds to bind encrypted credentials to the specific machine's ID.
 
 Prerequisites:
@@ -72,13 +72,13 @@ Deployment Files:
 
 🔗 [View the 'V.6' branch] for the full bootstrap scripts.
 
-Systemd Configuration:
+# Systemd Configuration:
 See:
-[Required Systemd code snippet for local implementation]
+[Required Systemd code snippets]
 Version 5.0 for cloud deployment
 Version 6.0 for local deployment
 
-🛡️ Security Verification
+# 🛡️ Security Verification
 To verify the deployment succeeded, the vault sealed properly, and secrets are not leaking to the disk:
 
 Stop the active service:
