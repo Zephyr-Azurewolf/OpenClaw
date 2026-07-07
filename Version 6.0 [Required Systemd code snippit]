@@ -1,0 +1,41 @@
+[Unit]
+Description=OpenClaw Gateway (Secure Local Node)
+After=network.target dev-tpmrm0.device 
+Wants=dev-tpmrm0.device
+
+[Service]
+Type=simple
+User=your_user
+Group=your_group
+WorkingDirectory=/path/to/openclaw
+
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=0
+
+# 1. The Secure Injection: Decrypts .cred files directly into RAM
+LoadCredentialEncrypted=or_secret:/etc/openclaw/vault/openrouter.cred
+LoadCredentialEncrypted=tg_secret:/etc/openclaw/vault/telegram.cred
+
+# 2. The Volatile Workspace: Creates /run/openclaw-vault in tmpfs
+RuntimeDirectory=openclaw-vault
+RuntimeDirectoryMode=0700
+
+# 3. Execution
+Environment="OPENCLAW_SKIP_WARMUP=true"
+Environment="OPENCLAW_AGENT_PROBE=false"
+Environment="OPENCLAW_LOG_LEVEL=debug"
+ExecStart=/path/to/start-gateway.sh
+
+# 4. Security Hardening & Capability Bounding
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/path/to/openclaw /run/openclaw-vault
+CapabilityBoundingSet=~CAP_SYS_ADMIN CAP_SYS_PTRACE CAP_SYSLOG
+RestrictRealtime=yes
+LockPersonality=yes
+ExecStopPost=/usr/bin/sh -c '/usr/bin/find /run/openclaw-vault -type f -exec /usr/bin/shred -u {} \;'
+
+[Install]
+WantedBy=multi-user.target
