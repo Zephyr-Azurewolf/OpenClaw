@@ -1,4 +1,5 @@
 OpenClaw Gateway: Secure Bootstrap & Service Architecture
+
 This repository contains a hardened deployment configuration for the OpenClaw Gateway. It utilizes a "Secret Injection" pattern to ensure that sensitive API credentials never touch persistent storage, residing strictly in volatile RAM (tmpfs) during runtime.
 
 This architecture supports both cloud-native environments (via Azure Key Vault) and localized bare-metal deployments (via Systemd Credentials).
