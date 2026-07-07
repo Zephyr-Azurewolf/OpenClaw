@@ -70,7 +70,7 @@ The Ephemeral Loop: OpenClaw references the keys from this memory-mapped directo
 
 Deployment Files:
 
-🔗 [View the 'V.6' branch] for the full bootstrap scripts.
+🔗 [View the 'V.6' branch] for the full bootstrap script.
 
 # Systemd Configuration:
 See:
